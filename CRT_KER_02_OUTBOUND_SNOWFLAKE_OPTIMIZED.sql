@@ -279,3 +279,6 @@ dev_filters AS (
 SELECT *
 FROM dev_filters
 ;
+----------------Error:
+syntax error line 178 at position 63 unexpected 'TRUNCATE'.
+syntax error line 178 at position 79 unexpected 'WITHIN
