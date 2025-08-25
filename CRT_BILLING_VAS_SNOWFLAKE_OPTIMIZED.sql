@@ -289,3 +289,33 @@ BEGIN
   RETURN 'SP_KER_BILLING_VAS_LOAD completed';
 END;
 $$;
+-- Adjust database/schema as needed
+CREATE OR REPLACE TABLE FACT_KER_BILLING_VAS (
+  VERSION              VARCHAR(10),
+  QUANTITY_PRE         NUMBER(38,0),
+  QUANTITY_FIX         NUMBER(38,0),
+  ACTIVITY_DATE        DATE,             -- used in MERGE key
+  PREPARATION_CHILD    VARCHAR(20),
+  PREPARATION_MOTHER   VARCHAR(20),
+  SAP_ORDERID          VARCHAR(50),
+  VAS_CLUSTER          VARCHAR(200),
+  BRAND                VARCHAR(20),
+  OWNER                VARCHAR(50),
+  GRADE                VARCHAR(50),
+
+  -- natural key columns (from prep/shipment)
+  P1CDPO               NUMBER(38,0),
+  P1CACT               NUMBER(38,0),
+  P1NANP               NUMBER(38,0),
+  P1NPRE               NUMBER(38,0),
+
+  VAS_CODE             VARCHAR(7),       -- trimmed to 7 chars in the view; used in MERGE key
+  UPDATED_TS           TIMESTAMP_NTZ     -- incremental watermark
+)
+-- Optional but recommended for pruning:
+-- CLUSTER BY (ACTIVITY_DATE, BRAND, VAS_CODE);
+
+-- Optional: document the natural key the procedure uses (not enforced by Snowflake):
+ALTER TABLE FACT_KER_BILLING_VAS
+  ADD CONSTRAINT UK_FACT_KER_BILLING_VAS
+  UNIQUE (P1CDPO, P1CACT, P1NANP, P1NPRE, VAS_CODE, ACTIVITY_DATE) NOT ENFORCED;
