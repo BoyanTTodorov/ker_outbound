@@ -189,3 +189,5 @@ BEGIN
   RETURN 'KER_02_OUTBOUND_LOAD completed';
 END;
 $$;
+error:
+Uncaught exception of type 'STATEMENT_ERROR' on line 3 at position 2 : DML operation to table FACT_KER_02_OUTBOUND failed on column SAP_CARRIER with error: String '0000102963' is too long and would be truncated
