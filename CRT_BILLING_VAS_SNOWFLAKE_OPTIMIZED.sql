@@ -132,7 +132,7 @@ VASLINE AS (
          AND CL.HVR_CHANGE_TIME  < (SELECT END_TS   FROM RANGE_PARAMS)
         )
       )
-  ) BASE
+  ) S
   /* Snowflake UNPIVOT to one VAS per row */
   UNPIVOT (VAS_CODE FOR POSITION IN (
     CLVA01, CLVA02, CLVA03, CLVA04, CLVA05,
@@ -255,7 +255,8 @@ RANGE_FILTER AS (
 )
 
 SELECT * FROM RANGE_FILTER;
---------------------------------------------------
+--------------------------------------------------------------------------------------
+
 CREATE OR REPLACE PROCEDURE SP_KER_BILLING_VAS_LOAD(SAFETY_HOURS INTEGER DEFAULT 4)
 RETURNS STRING
 LANGUAGE SQL
