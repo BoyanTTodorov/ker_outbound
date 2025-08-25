@@ -1,193 +1,142 @@
-CREATE OR REPLACE PROCEDURE SMART_BI.KER_02_OUTBOUND_LOAD(SAFETY_HOURS INTEGER DEFAULT 4)
-RETURNS STRING
+CREATE OR REPLACE PROCEDURE MODELS.KERING_GLOBE.SP_KER_02_OUTBOUND_LOAD(
+    p_start_ts   TIMESTAMP_NTZ,
+    p_end_ts     TIMESTAMP_NTZ,
+    p_full_reload BOOLEAN DEFAULT FALSE
+)
+RETURNS VARIANT
 LANGUAGE SQL
+EXECUTE AS CALLER
 AS
 $$
+DECLARE
+    v_start TIMESTAMP_NTZ := p_start_ts;
+    v_end   TIMESTAMP_NTZ := p_end_ts;
 BEGIN
-  MERGE INTO FACT_KER_02_OUTBOUND t
-  USING (
+    ----------------------------------------------------------------------
+    -- 0) Safety checks
+    ----------------------------------------------------------------------
+    IF v_start IS NULL AND NOT p_full_reload THEN
+        RAISE STATEMENT_ERROR USING
+          MESSAGE = 'p_start_ts is required when p_full_reload = FALSE';
+    END IF;
+
+    IF v_end IS NULL AND NOT p_full_reload THEN
+        RAISE STATEMENT_ERROR USING
+          MESSAGE = 'p_end_ts is required when p_full_reload = FALSE';
+    END IF;
+
+    ----------------------------------------------------------------------
+    -- 1) Ensure target table exists (schema = view output)
+    --    If it doesn't exist, create it empty but with the same columns.
+    ----------------------------------------------------------------------
+    EXECUTE IMMEDIATE $$
+        CREATE TABLE IF NOT EXISTS MODELS.KERING_GLOBE.FCT_KER_01_INBOUND AS
+        SELECT *
+        FROM MODELS.KERING_GLOBE.CRT_KER_01_INBOUND
+        WHERE 1=0
+    $$;
+
+    ----------------------------------------------------------------------
+    -- 2) Stage source rows (fix: use UPDATED_DATE instead of creation_order_date)
+    --    NOTE: we *also* filter here even if the view has its own range guard.
+    ----------------------------------------------------------------------
+    CREATE OR REPLACE TEMP TABLE _SRC AS
     SELECT *
-    FROM   CRT_KER_02_OUTBOUND
-    WHERE  UPDATED_DATE >= DATEADD(
-             hour, - :SAFETY_HOURS,
-             COALESCE(
-               (SELECT LAST_UPDATE FROM OBJECT_RUN WHERE "OBJECT" = '02_OUTBOUND'),
-               TO_TIMESTAMP_NTZ('1900-01-01 00:00:00')
-             )
-           )
-    -- Optional ad-hoc filters (uncomment during execution as needed):
-    -- AND SAP_ORDERID = '4500000000'
-    -- AND PREPARATION_NUMBER = '02/000123456'
-    -- AND BRAND = 'YSL'
-  ) s
-  ON (t.PK_FACT_OUTBOUND = s.PK_FACT_OUTBOUND)
+    FROM MODELS.KERING_GLOBE.CRT_KER_01_INBOUND S
+    WHERE p_full_reload
+          OR (S.UPDATED_DATE >= v_start AND S.UPDATED_DATE < v_end);
 
-  WHEN MATCHED THEN UPDATE SET
-      INTEGRATION_DATE              = s.INTEGRATION_DATE,
-      INTEGRATION_TIME              = s.INTEGRATION_TIME,
-      ENVIRONMENT                   = s.ENVIRONMENT,
-      BUILDING                      = s.BUILDING,
-      REFLEX_CLIENT                 = s.REFLEX_CLIENT,
-      REFLEX_DESTINATION            = s.REFLEX_DESTINATION,
-      WAVING_DATE                   = s.WAVING_DATE,
-      WAVING_CODE                   = s.WAVING_CODE,
-      ORDER_INSERT_UPDATE           = s.ORDER_INSERT_UPDATE,
-      SHIPPING_REQUEST              = s.SHIPPING_REQUEST,
-      BRAND                         = s.BRAND,
-      SAP_ORDERID                   = s.SAP_ORDERID,
-      CUSTOMER_CODE                 = s.CUSTOMER_CODE,
-      COUNTRY                       = s.COUNTRY,
-      SAP_CARRIER                   = s.SAP_CARRIER,
-      REFLEX_CARRIER                = s.REFLEX_CARRIER,
-      CARRIER_NAME                  = s.CARRIER_NAME,
-      OWNER                         = s.OWNER,
-      QUALITY                       = s.QUALITY,
-      PREPARATION_NUMBER            = s.PREPARATION_NUMBER,
-      DELIVERY_DATE                 = s.DELIVERY_DATE,
-      LOAD_DATE                     = s.LOAD_DATE,
-      LOAD_CODE                     = s.LOAD_CODE,
-      RDV                           = s.RDV,
-      PLATE_NUMBER                  = s.PLATE_NUMBER,
-      TRUCK_DEPARTURE               = s.TRUCK_DEPARTURE,
-      TK35_TRANSMISSION             = s.TK35_TRANSMISSION,
-      TK05_PACKED_DATE              = s.TK05_PACKED_DATE,
-      TK05_SHIPPED_DATE             = s.TK05_SHIPPED_DATE,
-      INVOICE_CODE                  = s.INVOICE_CODE,
-      TRUCK_GATE_ARRIVAL            = s.TRUCK_GATE_ARRIVAL,
-      TRUCK_BAY_ARRIVAL             = s.TRUCK_BAY_ARRIVAL,
-      EVENT_490                     = s.EVENT_490,
-      INVOICE_DATE                  = s.INVOICE_DATE,
-      QUANTITY_ORDERED              = s.QUANTITY_ORDERED,
-      QUANTITY_PICKED               = s.QUANTITY_PICKED,
-      QUANTITY_PACKED               = s.QUANTITY_PACKED,
-      QUANTITY_DMS                  = s.QUANTITY_DMS,
-      PARCELS_LOADED                = s.PARCELS_LOADED,
-      PIECES_LOADED                 = s.PIECES_LOADED,
-      CARTONS                       = s.CARTONS,
-      TK05_CANCEL_FLAG              = s.TK05_CANCEL_FLAG,
-      TK05_CANCEL_DATE              = s.TK05_CANCEL_DATE,
-      INITIAL_PLANNED_PACKING_DATE  = s.INITIAL_PLANNED_PACKING_DATE,
-      INITIAL_PLANNED_PACKING_TIME  = s.INITIAL_PLANNED_PACKING_TIME,
-      PLANNED_PACKING_DATE          = s.PLANNED_PACKING_DATE,
-      PLANNED_PACKING_TIME          = s.PLANNED_PACKING_TIME,
-      INITIAL_LATEST_PLANNED_PACKING_DATE = s.INITIAL_LATEST_PLANNED_PACKING_DATE,
-      INITIAL_LATEST_PLANNED_PACKING_TIME = s.INITIAL_LATEST_PLANNED_PACKING_TIME,
-      LATEST_PLANNED_PACKING_DATE   = s.LATEST_PLANNED_PACKING_DATE,
-      LATEST_PLANNED_PACKING_TIME   = s.LATEST_PLANNED_PACKING_TIME,
-      INITIAL_PICKUP_DATE           = s.INITIAL_PICKUP_DATE,
-      INITIAL_PICKUP_TIME           = s.INITIAL_PICKUP_TIME,
-      PICKUP_DATE                   = s.PICKUP_DATE,
-      PICKUP_TIME                   = s.PICKUP_TIME,
-      FLOW                          = s.FLOW,
-      FLOW_DESCRIPTION              = s.FLOW_DESCRIPTION,
-      FLAG_HAZMAT                   = s.FLAG_HAZMAT,
-      FLAG_FSC                      = s.FLAG_FSC,
-      FLAG_JEWELLERY                = s.FLAG_JEWELLERY,
-      FLAG_PACKAGING_JEWELLERY      = s.FLAG_PACKAGING_JEWELLERY,
-      FLAG_HALMARKING               = s.FLAG_HALMARKING,
-      HALMARKING_STATUS             = s.HALMARKING_STATUS,
-      VAS_FLAG                      = s.VAS_FLAG,
-      VAS_CODE                      = s.VAS_CODE,
-      VAS_CLUSTER                   = s.VAS_CLUSTER,
-      SAP_MEAN_OF_TRANSPORT         = s.SAP_MEAN_OF_TRANSPORT,
-      REFLEX_MEAN_OF_TRANSPORT      = s.REFLEX_MEAN_OF_TRANSPORT,
-      CLUSTER                       = s.CLUSTER,
-      CHANNEL                       = s.CHANNEL,
-      FLAG_CEE                      = s.FLAG_CEE,
-      FLAG_IS_TO_SHIP               = s.FLAG_IS_TO_SHIP,
-      FLAG_IS_STOP                  = s.FLAG_IS_STOP,
-      FLAG_IS_CANCELLED             = s.FLAG_IS_CANCELLED,
-      FLAG_MAX_ATTENTION            = s.FLAG_MAX_ATTENTION,
-      PRIORITY                      = s.PRIORITY,
-      DOCUMENT_TYPE                 = s.DOCUMENT_TYPE,
-      FLOW_TYPE                     = s.FLOW_TYPE,
-      ROUTE                         = s.ROUTE,
-      SHIPPING_CONDITION            = s.SHIPPING_CONDITION,
-      CODE_DELIVERY_GROUP           = s.CODE_DELIVERY_GROUP,
-      DELIVERY_BLOCK                = s.DELIVERY_BLOCK,
-      SHIPMENT_BLOCKED              = s.SHIPMENT_BLOCKED,
-      FLAG_IS_RELEASE_OD            = s.FLAG_IS_RELEASE_OD,
-      EXTERNAL_ID                   = s.EXTERNAL_ID,
-      ORDER_ID_SENT_IN_TK05         = s.ORDER_ID_SENT_IN_TK05,
-      FLAG_URGENT                   = s.FLAG_URGENT,
-      FLAG_CUT_OFF                  = s.FLAG_CUT_OFF,
-      FLAG_DMM_RECALCULATION        = s.FLAG_DMM_RECALCULATION,
-      DMM_PICKUP                    = s.DMM_PICKUP,
-      DMM_PACKING                   = s.DMM_PACKING,
-      Commenti                      = s.Commenti,
-      CREATION_ORDER_DATE           = s.CREATION_ORDER_DATE,
-      UPDATED_DATE                  = s.UPDATED_DATE,
-      ISDELETED                     = s.ISDELETED,
-      PRODUCT_CATEGORY              = s.PRODUCT_CATEGORY
+    ----------------------------------------------------------------------
+    -- 3) MERGE into target on business key (PK_FACT_INBOUND)
+    --    Update on any material change; insert new rows.
+    ----------------------------------------------------------------------
+    MERGE INTO MODELS.KERING_GLOBE.FCT_KER_01_INBOUND T
+    USING _SRC S
+       ON T.PK_FACT_INBOUND = S.PK_FACT_INBOUND
+    WHEN MATCHED AND (
+           NVL(T.ENVIRONMENT,'')           <> NVL(S.ENVIRONMENT,'')
+        OR NVL(T.QUALITY,'')               <> NVL(S.QUALITY,'')
+        OR NVL(T.UDM,'')                   <> NVL(S.UDM,'')
+        OR NVL(T.SKU,'')                   <> NVL(S.SKU,'')
+        OR NVL(T.INBOUND_REFERENCE,'')     <> NVL(S.INBOUND_REFERENCE,'')
+        OR NVL(T.ASN,'')                   <> NVL(S.ASN,'')
+        OR NVL(T.FORECAST_QUANTITY,0)      <> NVL(S.FORECAST_QUANTITY,0)
+        OR NVL(T.ACTUAL_QUANTITY,0)        <> NVL(S.ACTUAL_QUANTITY,0)
+        OR NVL(T.EAN,'')                   <> NVL(S.EAN,'')
+        OR NVL(T.MODEL,'')                 <> NVL(S.MODEL,'')
+        OR NVL(T.PART,'')                  <> NVL(S.PART,'')
+        OR NVL(T.COLOUR,'')                <> NVL(S.COLOUR,'')
+        OR NVL(T.SIZE,'')                  <> NVL(S.SIZE,'')
+        OR NVL(T.DROP,'')                  <> NVL(S.DROP,'')
+        OR NVL(T.PRODUCT_CATEGORY,'')      <> NVL(S.PRODUCT_CATEGORY,'')
+        OR NVL(T.PRODUCT_SUBCATEGORY,'')   <> NVL(S.PRODUCT_SUBCATEGORY,'')
+        OR NVL(T.TRUCK_PLATE,'')           <> NVL(S.TRUCK_PLATE,'')
+        OR NVL(T.BUILDING,'')              <> NVL(S.BUILDING,'')
+        OR NVL(T.DOCK,'')                  <> NVL(S.DOCK,'')
+        OR NVL(T.TRUCK_GATE_ARRIVAL,TO_TIMESTAMP_NTZ('1900-01-01 00:00:01')) <> NVL(S.TRUCK_GATE_ARRIVAL,TO_TIMESTAMP_NTZ('1900-01-01 00:00:01'))
+        OR NVL(T.TRUCK_BAY_ARRIVAL, TO_TIMESTAMP_NTZ('1900-01-01 00:00:01')) <> NVL(S.TRUCK_BAY_ARRIVAL, TO_TIMESTAMP_NTZ('1900-01-01 00:00:01'))
+        OR NVL(T.TRUCK_BAY_DEPARTURE,TO_TIMESTAMP_NTZ('1900-01-01 00:00:01')) <> NVL(S.TRUCK_BAY_DEPARTURE,TO_TIMESTAMP_NTZ('1900-01-01 00:00:01'))
+        OR NVL(T.TRUCK_GATE_DEPARTURE,TO_TIMESTAMP_NTZ('1900-01-01 00:00:01')) <> NVL(S.TRUCK_GATE_DEPARTURE,TO_TIMESTAMP_NTZ('1900-01-01 00:00:01'))
+        OR NVL(T.UDM_RECEIVING,TO_TIMESTAMP_NTZ('1900-01-01 00:00:01'))       <> NVL(S.UDM_RECEIVING,TO_TIMESTAMP_NTZ('1900-01-01 00:00:01'))
+        OR NVL(T.UDM_POSITIONING,TO_TIMESTAMP_NTZ('1900-01-01 00:00:01'))     <> NVL(S.UDM_POSITIONING,TO_TIMESTAMP_NTZ('1900-01-01 00:00:01'))
+        OR NVL(T.APPOINTMENT_DATE,TO_TIMESTAMP_NTZ('1900-01-01 00:00:01'))    <> NVL(S.APPOINTMENT_DATE,TO_TIMESTAMP_NTZ('1900-01-01 00:00:01'))
+        OR NVL(T.UPDATED_DATE,TO_TIMESTAMP_NTZ('1900-01-01 00:00:01'))        <> NVL(S.UPDATED_DATE,TO_TIMESTAMP_NTZ('1900-01-01 00:00:01'))
+        OR NVL(T.ISDELETED,'')             <> NVL(S.ISDELETED,'')
+    )
+    THEN UPDATE SET
+        ENVIRONMENT         = S.ENVIRONMENT,
+        QUALITY             = S.QUALITY,
+        UDM                 = S.UDM,
+        SKU                 = S.SKU,
+        INBOUND_REFERENCE   = S.INBOUND_REFERENCE,
+        ASN                 = S.ASN,
+        FORECAST_QUANTITY   = S.FORECAST_QUANTITY,
+        ACTUAL_QUANTITY     = S.ACTUAL_QUANTITY,
+        EAN                 = S.EAN,
+        MODEL               = S.MODEL,
+        PART                = S.PART,
+        COLOUR              = S.COLOUR,
+        SIZE                = S.SIZE,
+        DROP                = S.DROP,
+        PRODUCT_CATEGORY    = S.PRODUCT_CATEGORY,
+        PRODUCT_SUBCATEGORY = S.PRODUCT_SUBCATEGORY,
+        TRUCK_PLATE         = S.TRUCK_PLATE,
+        BUILDING            = S.BUILDING,
+        DOCK                = S.DOCK,
+        TRUCK_GATE_ARRIVAL  = S.TRUCK_GATE_ARRIVAL,
+        TRUCK_BAY_ARRIVAL   = S.TRUCK_BAY_ARRIVAL,
+        TRUCK_BAY_DEPARTURE = S.TRUCK_BAY_DEPARTURE,
+        TRUCK_GATE_DEPARTURE= S.TRUCK_GATE_DEPARTURE,
+        UDM_RECEIVING       = S.UDM_RECEIVING,
+        UDM_POSITIONING     = S.UDM_POSITIONING,
+        APPOINTMENT_DATE    = S.APPOINTMENT_DATE,
+        UPDATED_DATE        = S.UPDATED_DATE,
+        ISDELETED           = S.ISDELETED
+    WHEN NOT MATCHED THEN
+        INSERT (
+            PK_FACT_INBOUND, ENVIRONMENT, QUALITY, UDM, SKU, INBOUND_REFERENCE, ASN,
+            FORECAST_QUANTITY, ACTUAL_QUANTITY, EAN, MODEL, PART, COLOUR, SIZE, DROP,
+            PRODUCT_CATEGORY, PRODUCT_SUBCATEGORY, TRUCK_PLATE, BUILDING, DOCK,
+            TRUCK_GATE_ARRIVAL, TRUCK_BAY_ARRIVAL, TRUCK_BAY_DEPARTURE, TRUCK_GATE_DEPARTURE,
+            UDM_RECEIVING, UDM_POSITIONING, APPOINTMENT_DATE, UPDATED_DATE, ISDELETED
+        )
+        VALUES (
+            S.PK_FACT_INBOUND, S.ENVIRONMENT, S.QUALITY, S.UDM, S.SKU, S.INBOUND_REFERENCE, S.ASN,
+            S.FORECAST_QUANTITY, S.ACTUAL_QUANTITY, S.EAN, S.MODEL, S.PART, S.COLOUR, S.SIZE, S.DROP,
+            S.PRODUCT_CATEGORY, S.PRODUCT_SUBCATEGORY, S.TRUCK_PLATE, S.BUILDING, S.DOCK,
+            S.TRUCK_GATE_ARRIVAL, S.TRUCK_BAY_ARRIVAL, S.TRUCK_BAY_DEPARTURE, S.TRUCK_GATE_DEPARTURE,
+            S.UDM_RECEIVING, S.UDM_POSITIONING, S.APPOINTMENT_DATE, S.UPDATED_DATE, S.ISDELETED
+        );
 
-  WHEN NOT MATCHED THEN INSERT (
-      PK_FACT_OUTBOUND, INTEGRATION_DATE, INTEGRATION_TIME, ENVIRONMENT, BUILDING,
-      REFLEX_CLIENT, REFLEX_DESTINATION, WAVING_DATE, WAVING_CODE,
-      ORDER_INSERT_UPDATE, SHIPPING_REQUEST, BRAND, SAP_ORDERID, CUSTOMER_CODE, COUNTRY,
-      SAP_CARRIER, REFLEX_CARRIER, CARRIER_NAME, OWNER, QUALITY, PREPARATION_NUMBER,
-      DELIVERY_DATE, LOAD_DATE, LOAD_CODE, RDV, PLATE_NUMBER, TRUCK_DEPARTURE,
-      TK35_TRANSMISSION, TK05_PACKED_DATE, TK05_SHIPPED_DATE, INVOICE_CODE,
-      TRUCK_GATE_ARRIVAL, TRUCK_BAY_ARRIVAL, EVENT_490, INVOICE_DATE,
-      QUANTITY_ORDERED, QUANTITY_PICKED, QUANTITY_PACKED, QUANTITY_DMS,
-      PARCELS_LOADED, PIECES_LOADED, CARTONS, TK05_CANCEL_FLAG, TK05_CANCEL_DATE,
-      INITIAL_PLANNED_PACKING_DATE, INITIAL_PLANNED_PACKING_TIME,
-      PLANNED_PACKING_DATE, PLANNED_PACKING_TIME,
-      INITIAL_LATEST_PLANNED_PACKING_DATE, INITIAL_LATEST_PLANNED_PACKING_TIME,
-      LATEST_PLANNED_PACKING_DATE, LATEST_PLANNED_PACKING_TIME,
-      INITIAL_PICKUP_DATE, INITIAL_PICKUP_TIME, PICKUP_DATE, PICKUP_TIME,
-      FLOW, FLOW_DESCRIPTION, FLAG_HAZMAT, FLAG_FSC, FLAG_JEWELLERY, FLAG_PACKAGING_JEWELLERY,
-      FLAG_HALMARKING, HALMARKING_STATUS, VAS_FLAG, VAS_CODE, VAS_CLUSTER,
-      SAP_MEAN_OF_TRANSPORT, REFLEX_MEAN_OF_TRANSPORT, CLUSTER, CHANNEL, FLAG_CEE,
-      FLAG_IS_TO_SHIP, FLAG_IS_STOP, FLAG_IS_CANCELLED, FLAG_MAX_ATTENTION, PRIORITY,
-      DOCUMENT_TYPE, FLOW_TYPE, ROUTE, SHIPPING_CONDITION, CODE_DELIVERY_GROUP, DELIVERY_BLOCK,
-      SHIPMENT_BLOCKED, FLAG_IS_RELEASE_OD, EXTERNAL_ID, ORDER_ID_SENT_IN_TK05,
-      FLAG_URGENT, FLAG_CUT_OFF, FLAG_DMM_RECALCULATION, DMM_PICKUP, DMM_PACKING, Commenti,
-      CREATION_ORDER_DATE, UPDATED_DATE, ISDELETED, PRODUCT_CATEGORY
-  )
-  VALUES (
-      s.PK_FACT_OUTBOUND, s.INTEGRATION_DATE, s.INTEGRATION_TIME, s.ENVIRONMENT, s.BUILDING,
-      s.REFLEX_CLIENT, s.REFLEX_DESTINATION, s.WAVING_DATE, s.WAVING_CODE,
-      s.ORDER_INSERT_UPDATE, s.SHIPPING_REQUEST, s.BRAND, s.SAP_ORDERID, s.CUSTOMER_CODE, s.COUNTRY,
-      s.SAP_CARRIER, s.REFLEX_CARRIER, s.CARRIER_NAME, s.OWNER, s.QUALITY, s.PREPARATION_NUMBER,
-      s.DELIVERY_DATE, s.LOAD_DATE, s.LOAD_CODE, s.RDV, s.PLATE_NUMBER, s.TRUCK_DEPARTURE,
-      s.TK35_TRANSMISSION, s.TK05_PACKED_DATE, s.TK05_SHIPPED_DATE, s.INVOICE_CODE,
-      s.TRUCK_GATE_ARRIVAL, s.TRUCK_BAY_ARRIVAL, s.EVENT_490, s.INVOICE_DATE,
-      s.QUANTITY_ORDERED, s.QUANTITY_PICKED, s.QUANTITY_PACKED, s.QUANTITY_DMS,
-      s.PARCELS_LOADED, s.PIECES_LOADED, s.CARTONS, s.TK05_CANCEL_FLAG, s.TK05_CANCEL_DATE,
-      s.INITIAL_PLANNED_PACKING_DATE, s.INITIAL_PLANNED_PACKING_TIME,
-      s.PLANNED_PACKING_DATE, s.PLANNED_PACKING_TIME,
-      s.INITIAL_LATEST_PLANNED_PACKING_DATE, s.INITIAL_LATEST_PLANNED_PACKING_TIME,
-      s.LATEST_PLANNED_PACKING_DATE, s.LATEST_PLANNED_PACKING_TIME,
-      s.INITIAL_PICKUP_DATE, s.INITIAL_PICKUP_TIME, s.PICKUP_DATE, s.PICKUP_TIME,
-      s.FLOW, s.FLOW_DESCRIPTION, s.FLAG_HAZMAT, s.FLAG_FSC, s.FLAG_JEWELLERY, s.FLAG_PACKAGING_JEWELLERY,
-      s.FLAG_HALMARKING, s.HALMARKING_STATUS, s.VAS_FLAG, s.VAS_CODE, s.VAS_CLUSTER,
-      s.SAP_MEAN_OF_TRANSPORT, s.REFLEX_MEAN_OF_TRANSPORT, s.CLUSTER, s.CHANNEL, s.FLAG_CEE,
-      s.FLAG_IS_TO_SHIP, s.FLAG_IS_STOP, s.FLAG_IS_CANCELLED, s.FLAG_MAX_ATTENTION, s.PRIORITY,
-      s.DOCUMENT_TYPE, s.FLOW_TYPE, s.ROUTE, s.SHIPPING_CONDITION, s.CODE_DELIVERY_GROUP, s.DELIVERY_BLOCK,
-      s.SHIPMENT_BLOCKED, s.FLAG_IS_RELEASE_OD, s.EXTERNAL_ID, s.ORDER_ID_SENT_IN_TK05,
-      s.FLAG_URGENT, s.FLAG_CUT_OFF, s.FLAG_DMM_RECALCULATION, s.DMM_PICKUP, s.DMM_PACKING, s.Commenti,
-      s.CREATION_ORDER_DATE, s.UPDATED_DATE, s.ISDELETED, s.PRODUCT_CATEGORY
-  );
-
-  MERGE INTO OBJECT_RUN d
-  USING (
-    SELECT '02_OUTBOUND' AS OBJECT,
-           MAX(UPDATED_DATE) AS LAST_UPDATE
-    FROM   CRT_KER_02_OUTBOUND
-    WHERE  UPDATED_DATE >= DATEADD(
-             hour, - :SAFETY_HOURS,
-             COALESCE(
-               (SELECT LAST_UPDATE FROM OBJECT_RUN WHERE "OBJECT" = '02_OUTBOUND'),
-               TO_TIMESTAMP_NTZ('1900-01-01 00:00:00')
-             )
-           )
-  ) s
-  ON d."OBJECT" = s.OBJECT
-  WHEN MATCHED THEN UPDATE
-    SET d.LAST_UPDATE = GREATEST(COALESCE(d.LAST_UPDATE, s.LAST_UPDATE), s.LAST_UPDATE)
-  WHEN NOT MATCHED THEN INSERT ("OBJECT", LAST_UPDATE)
-    VALUES (s.OBJECT, s.LAST_UPDATE);
-
-  RETURN 'KER_02_OUTBOUND_LOAD completed';
+    ----------------------------------------------------------------------
+    -- 4) Return a small payload for orchestration logs
+    ----------------------------------------------------------------------
+    RETURN OBJECT_CONSTRUCT(
+        'status', 'OK',
+        'full_reload', p_full_reload,
+        'start_ts', v_start,
+        'end_ts', v_end,
+        'src_rows', (SELECT COUNT(*) FROM _SRC)
+    );
 END;
 $$;
