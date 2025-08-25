@@ -55,13 +55,13 @@ VASLINE AS (
   SELECT
     S.P1CDPO, S.P1CACT, S.P1NANP, S.P1NPRE,
     S.CLCART, S.CLRCDE, S.CLNANP, S.CLNPRE,
-    S.VAS_CODE,
+    U.VAS_CODE,
     /* Keep qty at this stage for later capped aggregation */
     S.CLQPPP AS QTY_VAS_LANCIATA,
     S.PREPA_TYPE,
     KBTV.VTCTVA AS MAP_VAS_CODE,
     /* VAS_CLUSTER = text after '#' in VTDVAS, ')' stripped */
-    REGEXP_REPLACE(SPLIT_PART(KBTV.VTDVAS, '#', 2), '\\)', '') AS VAS_CLUSTER,
+    REPLACE(SPLIT_PART(KBTV.VTDVAS, '#', 2), ')', '') AS VAS_CLUSTER,
     /* track change time from CL (KBMCDLP) as driver for this branch */
     S.CL_LASTUPDATE
   FROM (
@@ -127,8 +127,10 @@ VASLINE AS (
       /* optional pushdown range on CL values; PREPLINES already ranged */
       (
         (SELECT APPLY_RANGE FROM RANGE_PARAMS) = FALSE
-        OR CL.HVR_CHANGE_TIME BETWEEN (SELECT START_TS FROM RANGE_PARAMS)
-                                 AND (SELECT END_TS   FROM RANGE_PARAMS)
+        OR (
+             CL.HVR_CHANGE_TIME >= (SELECT START_TS FROM RANGE_PARAMS)
+         AND CL.HVR_CHANGE_TIME  < (SELECT END_TS   FROM RANGE_PARAMS)
+        )
       )
   ) BASE
   /* Snowflake UNPIVOT to one VAS per row */
@@ -139,10 +141,10 @@ VASLINE AS (
     CLVA16, CLVA17, CLVA18, CLVA19, CLVA20,
     CLVA21, CLVA22, CLVA23, CLVA24, CLVA25
   )) AS U
-  /* keep only non-empty codes; trim to 7 like original */
-  QUALIFY VAS_CODE IS NOT NULL
   LEFT JOIN MODELS.KERING_GLOBE.KBTVASP KBTV
-    ON TRIM(SUBSTR(VAS_CODE, 1, 7)) = TRIM(KBTV.VTCTVA)
+    ON TRIM(SUBSTR(U.VAS_CODE, 1, 7)) = TRIM(KBTV.VTCTVA)
+  /* keep only non-empty codes */
+  WHERE U.VAS_CODE IS NOT NULL
 ),
 
 /*-----------------------------------------------------------------------
@@ -253,5 +255,3 @@ RANGE_FILTER AS (
 )
 
 SELECT * FROM RANGE_FILTER;
-syntax error line 145 at position 12 unexpected 'SUBSTR'.
-syntax error line 145 at position 34 unexpected ')'. (line 718)
