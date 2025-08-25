@@ -6,8 +6,6 @@ CREATE OR REPLACE VIEW MODELS.KERING_GLOBE.CRT_BILLING_VAS (
 WITH
 /*-----------------------------------------------------------------------
 RANGE_PARAMS
-- Set APPLY_RANGE = TRUE  → view returns only rows in [START_TS, END_TS)
-- Set APPLY_RANGE = FALSE → view returns all rows
 -----------------------------------------------------------------------*/
 RANGE_PARAMS AS (
   SELECT
@@ -18,8 +16,6 @@ RANGE_PARAMS AS (
 
 /*-----------------------------------------------------------------------
 PREPLINES
-- Aggregates positive picked quantities per prep line.
-- Join to shipments to allow both drivers to limit by range.
 -----------------------------------------------------------------------*/
 PREPLINES AS (
   SELECT
@@ -45,14 +41,13 @@ PREPLINES AS (
 ),
 
 /*-----------------------------------------------------------------------
-BASE FOR UNPIVOT
+BASE: join to resolve child/mother orders + collect CL columns
 -----------------------------------------------------------------------*/
 BASE AS (
   SELECT
     P1.P1CDPO, P1.P1CACT, P1.P1NANP, P1.P1NPRE,
     CL.CLCART, CL.CLRCDE, CL.CLNANP, CL.CLNPRE,
     CL.CLQPPP,
-    /* choose child vs mother shipment to bind CL correctly */
     CASE WHEN KP_CHILD.KPRODP IS NULL THEN 'MOTHER' ELSE 'CHILD' END AS PREPA_TYPE,
     /* the 25 potential VAS columns to unpivot */
     CL.CLVA01, CL.CLVA02, CL.CLVA03, CL.CLVA04, CL.CLVA05,
@@ -60,10 +55,9 @@ BASE AS (
     CL.CLVA11, CL.CLVA12, CL.CLVA13, CL.CLVA14, CL.CLVA15,
     CL.CLVA16, CL.CLVA17, CL.CLVA18, CL.CLVA19, CL.CLVA20,
     CL.CLVA21, CL.CLVA22, CL.CLVA23, CL.CLVA24, CL.CLVA25,
-    /* last update on CL row */
     COALESCE(CL.HVR_CHANGE_TIME, TO_TIMESTAMP_NTZ('1900-01-01 00:00:01')) AS CL_LASTUPDATE
   FROM PREPLINES P1
-  /* resolve child prep → order codes */
+  /* child order mapping */
   LEFT JOIN (
     SELECT KPCDEP, KPCACT, KPRODP, KPNAOR, KPNPOR, KPNACR, KPNPCR
     FROM MODELS.KERING_GLOBE.KBSPLIP
@@ -71,7 +65,7 @@ BASE AS (
   ) KP_CHILD
     ON KP_CHILD.KPCDEP = P1.P1CDPO AND KP_CHILD.KPCACT = P1.P1CACT
    AND KP_CHILD.KPNACR = P1.P1NANP AND KP_CHILD.KPNPCR = P1.P1NPRE
-  /* resolve mother prep → order codes */
+  /* mother order mapping */
   LEFT JOIN (
     SELECT KPCDEP, KPCACT, KPRODP, KPNAOR, KPNPOR
     FROM MODELS.KERING_GLOBE.KBSPLIP
@@ -79,7 +73,7 @@ BASE AS (
   ) KP_MOTHER
     ON KP_MOTHER.KPCDEP = P1.P1CDPO AND KP_MOTHER.KPCACT = P1.P1CACT
    AND KP_MOTHER.KPNAOR = P1.P1NANP AND KP_MOTHER.KPNPOR = P1.P1NPRE
-  /* CL lines for that (order, prep, sku) */
+  /* CL lines */
   LEFT JOIN (
     SELECT
       CLCDPO, CLCACT, CLRCDE, CLNANP, CLNPRE, CLNLPR, CLCART,
@@ -107,44 +101,53 @@ BASE AS (
    AND CL.CLNANP = COALESCE(KP_CHILD.KPNAOR, KP_MOTHER.KPNAOR)
    AND CL.CLNPRE = COALESCE(KP_CHILD.KPNPOR, KP_MOTHER.KPNPOR)
   WHERE
-    (
-      (SELECT APPLY_RANGE FROM RANGE_PARAMS) = FALSE
-      OR (
-           CL.HVR_CHANGE_TIME >= (SELECT START_TS FROM RANGE_PARAMS)
-       AND CL.HVR_CHANGE_TIME  < (SELECT END_TS   FROM RANGE_PARAMS)
-      )
+    (SELECT APPLY_RANGE FROM RANGE_PARAMS) = FALSE
+    OR (
+         CL.HVR_CHANGE_TIME >= (SELECT START_TS FROM RANGE_PARAMS)
+     AND CL.HVR_CHANGE_TIME  < (SELECT END_TS   FROM RANGE_PARAMS)
     )
 ),
 
 /*-----------------------------------------------------------------------
-VASLINE (UNPIVOT + KBTVASP)
+UNPIVOTED_VAS: perform UNPIVOT in its own CTE (avoids alias scoping issues)
 -----------------------------------------------------------------------*/
-VASLINE AS (
+UNPIVOTED_VAS AS (
   SELECT
-    B.P1CDPO, B.P1CACT, B.P1NANP, B.P1NPRE,
-    B.CLCART, B.CLRCDE, B.CLNANP, B.CLNPRE,
-    U.VAS_CODE,
-    B.CLQPPP AS QTY_VAS_LANCIATA,
-    B.PREPA_TYPE,
-    KBTV.VTCTVA AS MAP_VAS_CODE,
-    REPLACE(SPLIT_PART(KBTV.VTDVAS, '#', 2), ')', '') AS VAS_CLUSTER,
-    B.CL_LASTUPDATE
-  FROM BASE B
+    P1CDPO, P1CACT, P1NANP, P1NPRE,
+    CLCART, CLRCDE, CLNANP, CLNPRE,
+    CLQPPP, PREPA_TYPE, CL_LASTUPDATE,
+    VAS_CODE
+  FROM BASE
   UNPIVOT (VAS_CODE FOR POSITION IN (
     CLVA01, CLVA02, CLVA03, CLVA04, CLVA05,
     CLVA06, CLVA07, CLVA08, CLVA09, CLVA10,
     CLVA11, CLVA12, CLVA13, CLVA14, CLVA15,
     CLVA16, CLVA17, CLVA18, CLVA19, CLVA20,
     CLVA21, CLVA22, CLVA23, CLVA24, CLVA25
-  )) AS U
-  LEFT JOIN MODELS.KERING_GLOBE.KBTVASP KBTV
-    ON TRIM(SUBSTR(U.VAS_CODE, 1, 7)) = TRIM(KBTV.VTCTVA)
-  WHERE U.VAS_CODE IS NOT NULL
+  )) U
+  WHERE VAS_CODE IS NOT NULL
 ),
 
 /*-----------------------------------------------------------------------
-VASCODE
-- Finalized VAS facts per prep with quantities & cluster, aggregated.
+VASLINE: map to KBTVASP + derive cluster
+-----------------------------------------------------------------------*/
+VASLINE AS (
+  SELECT
+    U.P1CDPO, U.P1CACT, U.P1NANP, U.P1NPRE,
+    U.CLCART, U.CLRCDE, U.CLNANP, U.CLNPRE,
+    U.VAS_CODE,
+    U.CLQPPP AS QTY_VAS_LANCIATA,
+    U.PREPA_TYPE,
+    KBTV.VTCTVA AS MAP_VAS_CODE,
+    REPLACE(SPLIT_PART(KBTV.VTDVAS, '#', 2), ')', '') AS VAS_CLUSTER,
+    U.CL_LASTUPDATE
+  FROM UNPIVOTED_VAS U
+  LEFT JOIN MODELS.KERING_GLOBE.KBTVASP KBTV
+    ON TRIM(SUBSTR(U.VAS_CODE, 1, 7)) = TRIM(KBTV.VTCTVA)
+),
+
+/*-----------------------------------------------------------------------
+VASCODE: aggregate per prep / VAS
 -----------------------------------------------------------------------*/
 VASCODE AS (
   SELECT
@@ -154,7 +157,7 @@ VASCODE AS (
     SUM(V.QTY_VAS_LANCIATA)        AS QTY_VAS_LANCIATA,
     ANY_VALUE(V.PREPA_TYPE)        AS PREPA_TYPE,
     MAX(V.VAS_CLUSTER)             AS VAS_CLUSTER,
-    MAX(V.CL_LASTUPDATE)           AS LASTUPDATE   -- for UPDATED_TS greatest()
+    MAX(V.CL_LASTUPDATE)           AS LASTUPDATE
   FROM VASLINE V
   WHERE TRIM(SUBSTR(V.VAS_CODE, 1, 7)) IS NOT NULL
   GROUP BY
@@ -162,9 +165,7 @@ VASCODE AS (
 ),
 
 /*-----------------------------------------------------------------------
-BILLING_VAS_BASE
-- Join pieces and compute QUANTITY_PRE / capped QUANTITY_FIX per VAS.
-- Compute UPDATED_TS as greatest of shipment/prep/CL changes.
+BILLING_VAS_BASE: compute quantities + UPDATED_TS
 -----------------------------------------------------------------------*/
 BILLING_VAS_BASE AS (
   SELECT
@@ -238,7 +239,7 @@ BILLING_VAS_BASE AS (
 ),
 
 /*-----------------------------------------------------------------------
-RANGE_FILTER
+RANGE_FILTER: final guard on UPDATED_TS
 -----------------------------------------------------------------------*/
 RANGE_FILTER AS (
   SELECT b.*
@@ -248,7 +249,8 @@ RANGE_FILTER AS (
 )
 
 SELECT * FROM RANGE_FILTER;
------------------------------------------------
+---------------------------------------
+
 CREATE OR REPLACE PROCEDURE SP_KER_BILLING_VAS_LOAD(SAFETY_HOURS INTEGER DEFAULT 4)
 RETURNS STRING
 LANGUAGE SQL
