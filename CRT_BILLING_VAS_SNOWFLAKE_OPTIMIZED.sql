@@ -253,3 +253,5 @@ RANGE_FILTER AS (
 )
 
 SELECT * FROM RANGE_FILTER;
+syntax error line 145 at position 12 unexpected 'SUBSTR'.
+syntax error line 145 at position 34 unexpected ')'. (line 718)
