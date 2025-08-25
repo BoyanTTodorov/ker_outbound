@@ -1,141 +1,17 @@
--- ⚠️ WARNING: This will DROP the table and all its data.
--- Make sure you have a backup or confirm data is disposable before running.
-
-DROP TABLE IF EXISTS FACT_KER_02_OUTBOUND;
-
-CREATE TABLE FACT_KER_02_OUTBOUND (
-    PK_FACT_OUTBOUND BINARY(16) NOT NULL,
-    SAP_ORDERID VARCHAR(100),
-    ENVIRONMENT VARCHAR(100),
-    INTEGRATION_DATE DATE,
-    INTEGRATION_TIME VARCHAR(100),
-    WAVING_DATE DATE,
-    WAVING_CODE VARCHAR(100),
-    ORDER_INSERT_UPDATE VARCHAR(100),
-    SHIPPING_REQUEST VARCHAR(100),
-    BRAND VARCHAR(100),
-    BUILDING VARCHAR(100),
-    CUSTOMER_CODE VARCHAR(100),
-    REFLEX_CLIENT VARCHAR(100),
-    REFLEX_DESTINATION VARCHAR(100),
-    COUNTRY VARCHAR(100),
-    SAP_CARRIER VARCHAR(100),
-    REFLEX_CARRIER VARCHAR(100),
-    CARRIER_NAME VARCHAR(100),
-    OWNER VARCHAR(100),
-    QUALITY VARCHAR(100),
-    PREPARATION_NUMBER VARCHAR(100),
-    PLANNED_PACKING_DATE DATE,
-    PLANNED_PACKING_TIME VARCHAR(100),
-    PICKUP_DATE DATE,
-    PICKUP_TIME VARCHAR(100),
-    DELIVERY_DATE DATE,
-    LOAD_DATE DATE,
-    LOAD_CODE VARCHAR(100),
-    RDV VARCHAR(100),
-    PLATE_NUMBER VARCHAR(100),
-    TK05_PACKED_DATE TIMESTAMP,
-    INVOICE_DATE TIMESTAMP,
-    INVOICE_CODE VARCHAR(100),
-    TRUCK_GATE_ARRIVAL TIMESTAMP,
-    TRUCK_BAY_ARRIVAL TIMESTAMP,
-    TK05_SHIPPED_DATE TIMESTAMP,
-    TK35_TRANSMISSION TIMESTAMP,
-    INITIAL_PLANNED_PACKING_DATE TIMESTAMP,
-    INITIAL_PLANNED_PACKING_TIME TIMESTAMP,
-    -- ✅ newly added columns
-    INITIAL_LATEST_PLANNED_PACKING_DATE DATE,
-    INITIAL_LATEST_PLANNED_PACKING_TIME VARCHAR(100),
-    TRUCK_DEPARTURE TIMESTAMP,
-    QUANTITY_ORDERED NUMBER(22,3),
-    QUANTITY_PICKED NUMBER(22,3),
-    QUANTITY_PACKED NUMBER(22,3),
-    QUANTITY_DMS NUMBER(22,3),
-    PARCELS_LOADED NUMBER(22,3),
-    PIECES_LOADED NUMBER(22,3),
-    CARTONS VARCHAR(100),
-    TK05_CANCEL_FLAG VARCHAR(100),
-    TK05_CANCEL_DATE TIMESTAMP,
-    LATEST_PLANNED_PACKING_DATE DATE,
-    LATEST_PLANNED_PACKING_TIME VARCHAR(100),
-    INITIAL_PICKUP_DATE DATE,
-    INITIAL_PICKUP_TIME VARCHAR(100),
-    FLOW VARCHAR(100),
-    FLOW_DESCRIPTION VARCHAR(100),
-    FLAG_HAZMAT VARCHAR(100),
-    FLAG_FSC VARCHAR(100),
-    FLAG_JEWELLERY VARCHAR(100),
-    FLAG_PACKAGING_JEWELLERY VARCHAR(100),
-    FLAG_HALMARKING VARCHAR(100),
-    HALMARKING_STATUS VARCHAR(100),
-    FLAG_IMPACT_CITES VARCHAR(100),
-    CITES_STATUS VARCHAR(100),
-    VAS_FLAG VARCHAR(100),
-    VAS_CODE VARCHAR(100),
-    VAS_CLUSTER VARCHAR(100),
-    SAP_MEAN_OF_TRANSPORT VARCHAR(100),
-    REFLEX_MEAN_OF_TRANSPORT VARCHAR(100),
-    CLUSTER VARCHAR(100),
-    CHANNEL VARCHAR(100),
-    FLAG_CEE VARCHAR(100),
-    FLAG_IS_TO_SHIP VARCHAR(100),
-    FLAG_IS_STOP VARCHAR(100),
-    FLAG_IS_CANCELLED VARCHAR(100),
-    FLAG_MAX_ATTENTION VARCHAR(100),
-    PRIORITY VARCHAR(100),
-    DOCUMENT_TYPE VARCHAR(100),
-    FLOW_TYPE VARCHAR(100),
-    ROUTE VARCHAR(100),
-    SHIPPING_CONDITION VARCHAR(100),
-    CODE_DELIVERY_GROUP VARCHAR(100),
-    DELIVERY_BLOCK VARCHAR(100),
-    SHIPMENT_BLOCKED VARCHAR(100),
-    FLAG_IS_RELEASE_OD VARCHAR(100),
-    EXTERNAL_ID VARCHAR(100),
-    ORDER_ID_SENT_IN_TK05 VARCHAR(100),
-    FLAG_URGENT VARCHAR(100),
-    FLAG_CUT_OFF VARCHAR(100),
-    FLAG_DMM_RECALCULATION VARCHAR(100),
-    DMM_PICKUP TIMESTAMP,
-    DMM_PACKING TIMESTAMP,
-    CREATED_DATE TIMESTAMP,
-    UPDATED_DATE TIMESTAMP,
-    ISDELETED NUMBER,
-    COMMENTI VARCHAR(100),
-    FLAG_ORDER_DESACTIVATED VARCHAR(20),
-    PRODUCT_CATEGORY VARCHAR(50),
-    EVENT_490 TIMESTAMP,
-    PRIMARY KEY (PK_FACT_OUTBOUND)
-);
-
-
-SELECT table_catalog, table_schema, table_name
-FROM information_schema.tables
-WHERE table_name ILIKE '%KBCOMOP%';
-
-select * from CRT_KER_02_OUTBOUND sample(1) limit 5;
-------------------------------------------------------
 create or replace view CRT_KER_02_OUTBOUND as
 with
 /*-----------------------------------------------------------------------
-CTE: PARAMS
-Role: Single place to control date filtering.
-- Set APPLY_RANGE = TRUE  → scan ONLY the window
-- Set APPLY_RANGE = FALSE → scan ALL data (predicates bypassed)
-END_TS is exclusive.
+PARAMS
 -----------------------------------------------------------------------*/
 PARAMS as (
   select
-    /* ================== EDIT ME ================== */
     true as APPLY_RANGE,  -- flip to FALSE to load ALL data
     to_timestamp_ntz('2025-08-25 12:00:00') as START_TS,
     to_timestamp_ntz('2025-08-26 00:00:00') as END_TS
-    /* ============================================ */
 ),
 
 /*-----------------------------------------------------------------------
-CTE: PREP_LINES
-Role: Prep-line aggregates. Range on HLPRPLP (P1).
+PREP_LINES
 -----------------------------------------------------------------------*/
 PREP_LINES as (
   select
@@ -153,7 +29,7 @@ PREP_LINES as (
         lpad(P1.P1SSCA,2,'0')||lpad(P1.P1ANCA,2,'0')||'-'||lpad(P1.P1MOCA,2,'0')||'-'||lpad(P1.P1JOCA,2,'0')
         ||' '||substr(lpad(coalesce(LC.LCHDCA,0)::varchar,6,'0'),1,2)||':'||substr(lpad(coalesce(LC.LCHDCA,0)::varchar,6,'0'),3,2)
         ||' '||P1.P1CDLA
-      else ' ' end
+      else null end
     ) as WAVE,
     max(CA.CAPRCA) as PRODCAT,
     max(case when P1.P1CART like '7%' then 1 else 0 end) as FLAG_PACKAGING_JEWELRY_SUB,
@@ -175,8 +51,7 @@ PREP_LINES as (
 ),
 
 /*-----------------------------------------------------------------------
-CTE: PE
-Role: Header-level prep entity; range on HLPRENP (PE).
+PE
 -----------------------------------------------------------------------*/
 PE as (
   select PE.*, CO.Commenti
@@ -207,11 +82,12 @@ PE as (
 ),
 
 /*-----------------------------------------------------------------------
-CTE: HU
-Role: TK35 transmission aggregation; range on KB35HUP (HU).
+HU
 -----------------------------------------------------------------------*/
 HU as (
-  select HU.HUCDPO, HU.HUDNUM, HU.HUPORD, max(HU.HUDMAJ) as TK35HEURE, max(HU.HVR_CHANGE_TIME) as LAST_UPDATE
+  select HU.HUCDPO, HU.HUDNUM, HU.HUPORD,
+         max(HU.HUDMAJ) as TK35HEURE,
+         max(HU.HVR_CHANGE_TIME) as LAST_UPDATE
   from MODELS.KERING_GLOBE.KB35HUP HU
   where HU.HUCDPO='001'
     and (
@@ -223,8 +99,7 @@ HU as (
 ),
 
 /*-----------------------------------------------------------------------
-CTE: PREP_LINES_QTY
-Role: Pack/DMS/carton/loaded quantities; range on all contributing tables.
+PREP_LINES_QTY
 -----------------------------------------------------------------------*/
 PREP_LINES_QTY as (
   select P1.P1CDPO, P1.P1CACT, P1.P1NANP, P1.P1NPRE,
@@ -257,8 +132,7 @@ PREP_LINES_QTY as (
 ),
 
 /*-----------------------------------------------------------------------
-CTE: DMS_SUB
-Role: DMS quantity (ARV). Range on HLPRPLP (alias P1D).
+DMS_SUB
 -----------------------------------------------------------------------*/
 DMS_SUB as (
   select P1D.P1CACT, P1D.P1CDPO, P1D.P1NANP, P1D.P1NPRE, sum(P1D.P1QODP) as QTY_DMS
@@ -275,8 +149,7 @@ DMS_SUB as (
 ),
 
 /*-----------------------------------------------------------------------
-CTE: GS
-Role: Export quantities; range on P1 and GS.
+GS
 -----------------------------------------------------------------------*/
 GS as (
   select GS.GSCDPO, GS.GSCACT, GS.GSNAPP, GS.GSNPRE,
@@ -298,8 +171,7 @@ GS as (
 ),
 
 /*-----------------------------------------------------------------------
-CTE: CO
-Role: Sent-flag reference (small lookup).
+CO (sent flag)
 -----------------------------------------------------------------------*/
 CO as (
   select distinct CO.CORCDE
@@ -310,8 +182,7 @@ CO as (
 ),
 
 /*-----------------------------------------------------------------------
-CTE: SG1 / SG2
-Role: Shipping request detection; range on KBDSSLP (SG).
+SG1 / SG2 (shipping request)
 -----------------------------------------------------------------------*/
 SG1 as (
   select substr(SG.SGSRID,1,6) as CGCOD,
@@ -347,8 +218,7 @@ SG2 as (
 ),
 
 /*-----------------------------------------------------------------------
-CTE: YMX
-Role: YMS timings (no HVR_CHANGE_TIME in source).
+YMX (YMS timings)
 -----------------------------------------------------------------------*/
 YMX as (
   select
@@ -401,28 +271,30 @@ YMX as (
   group by TD.TDTREFB
 ),
 
---CTE: BASE
---Role: Final joined dataset; CHANGE_TS = greatest contributing timestamp.
-
+/*-----------------------------------------------------------------------
+BASE (type-safe)
+-----------------------------------------------------------------------*/
 BASE as (
   select
-    --PK as hex string (MD5 returns BINARY) 
-    md5('B' || OE.OENANN || OE.OENODP || PE.PECACT || PE.PECDPO || PE.PERODP || PE.PENANN || PE.PENPRE) as PK_FACT_OUTBOUND,
+    /* PK as binary(16) */
+    md5_binary('B' || OE.OENANN || OE.OENODP || PE.PECACT || PE.PECDPO || PE.PERODP || PE.PENANN || PE.PENPRE) as PK_FACT_OUTBOUND,
 
-    --Ingestion time (kept as strings, per original)
-    to_char(MOTHER.SHDCOR,'DD/MM/YYYY') as INTEGRATION_DATE,
-    to_char(MOTHER.SHDCOR,'HH24:MI')    as INTEGRATION_TIME,
+    /* Integration snapshot (DATE + VARCHAR time) */
+    coalesce(MOTHER.SHDCOR, CHILD.SHDCOR)::date as INTEGRATION_DATE,
+    to_char(coalesce(MOTHER.SHDCOR, CHILD.SHDCOR), 'HH24:MI') as INTEGRATION_TIME,
 
     'Reflex WEB B' as ENVIRONMENT,
     'B' as BUILDING,
 
     substr(PREP_LINES.GRADE,1,3) as REFLEX_CLIENT,
     PE.PECDES as REFLEX_DESTINATION,
-    substr(PREP_LINES.WAVE,1,16) as WAVING_DATE,
-    substr(PREP_LINES.WAVE,18,3) as WAVING_CODE,
 
-    case when CO.CORCDE is null then ' ' else 'SENT' end as ORDER_INSERT_UPDATE,
-    case when coalesce(SG1.CGCOD, SG2.CGCOD) is null then ' ' else 'DONE' end as SHIPPING_REQUEST,
+    /* WAVING_* — date format in WAVE isn't a reliable calendar date → keep NULL for date, keep code if present */
+    cast(null as date) as WAVING_DATE,
+    case when PREP_LINES.WAVE is not null then substr(PREP_LINES.WAVE,18,3) else null end as WAVING_CODE,
+
+    case when CO.CORCDE is null then null else 'SENT' end as ORDER_INSERT_UPDATE,
+    case when coalesce(SG1.CGCOD, SG2.CGCOD) is null then null else 'DONE' end as SHIPPING_REQUEST,
 
     case when MOTHER.SHCDOR is null then CHILD.SHCDOR else MOTHER.SHCDOR end as BRAND,
     case when MOTHER.SHRDOR is null then CHILD.SHRDOR else MOTHER.SHRDOR end as SAP_ORDERID,
@@ -438,18 +310,25 @@ BASE as (
     case when CHILD.SHCACT is null then lpad(PE.PENANN,2,'0') || '/' || lpad(PE.PENPRE,9,'0')
          else lpad(CHILD.SHNANN,2,'0') || '/' || lpad(CHILD.SHNPRP,9,'0') end as PREPARATION_NUMBER,
 
-    case when MOTHER.SHDDEL is null then to_char(CHILD.SHDDEL,'DD/MM/YYYY') else to_char(MOTHER.SHDDEL,'DD/MM/YYYY') end as DELIVERY_DATE,
-    lpad(PE.PEJOCA,2,'0') || '/' || lpad(PE.PEMOCA,2,'0') || '/' || lpad(PE.PESSCA,2,'0') || lpad(PE.PEANCA,2,'0') as LOAD_DATE,
+    /* DATE/TIMESTAMPs as real types */
+    (case when CHILD.SHCACT is null then MOTHER.SHDDEL else CHILD.SHDDEL end)::date as DELIVERY_DATE,
+    to_char(TO_TIMESTAMP_NTZ(lpad(PE.PEJOCA,2,'0')||'-'||lpad(PE.PEMOCA,2,'0')||'-'||lpad(PE.PESSCA,2,'0')||lpad(PE.PEANCA,2,'0'), 'DD-MM-SSYY'), 'DD/MM/YYYY')::date as LOAD_DATE, -- best effort to keep original intent; if invalid returns NULL
     PE.PECCHA as LOAD_CODE,
-    case when U9.U9NARV > 0 then lpad(U9.U9NARV,2,'0') || '/' || lpad(U9.U9NRDV,9,'0') else ' ' end as RDV,
+    case when U9.U9NARV > 0 then lpad(U9.U9NARV,2,'0') || '/' || lpad(U9.U9NRDV,9,'0') else null end as RDV,
     CG.CGNPLC as PLATE_NUMBER,
-    ' ' as TRUCK_DEPARTURE,
+    cast(null as timestamp) as TRUCK_DEPARTURE,
 
-    case when HU.HUCDPO is not null then to_char(HU.TK35HEURE,'DD/MM/YYYY HH24:MI') else ' ' end as TK35_TRANSMISSION,
-    case when CHILD.SHCACT is null then ' '
-         else case when to_char(CHILD.SHTTKP)='0' then ' ' else to_char(CHILD.SHDTKP,'DD/MM/YYYY HH24:MI') end end as TK05_PACKED_DATE,
-    case when CHILD.SHCACT is null then ' '
-         else case when to_char(CHILD.SHTTKS)='0' then ' ' else to_char(CHILD.SHDTKS,'DD/MM/YYYY HH24:MI') end end as TK05_SHIPPED_DATE,
+    case when HU.HUCDPO is not null then HU.TK35HEURE else null end as TK35_TRANSMISSION,
+    case when CHILD.SHCACT is null then
+           case when coalesce(MOTHER.SHTTKP,0)=0 then null else MOTHER.SHDTKP end
+         else
+           case when coalesce(CHILD.SHTTKP,0)=0 then null else CHILD.SHDTKP end
+    end as TK05_PACKED_DATE,
+    case when CHILD.SHCACT is null then
+           case when coalesce(MOTHER.SHTTKS,0)=0 then null else MOTHER.SHDTKS end
+         else
+           case when coalesce(CHILD.SHTTKS,0)=0 then null else CHILD.SHDTKS end
+    end as TK05_SHIPPED_DATE,
     case when CHILD.SHCACT is null then MOTHER.SHCINV else CHILD.SHCINV end as INVOICE_CODE,
 
     YMX.MO_ARRIVAL_DATE   as TRUCK_GATE_ARRIVAL,
@@ -457,9 +336,9 @@ BASE as (
     YMX.MO_DEPARTURE_DATE as EVENT_490,
 
     case when CHILD.SHCACT is null then
-           case when to_char(MOTHER.SHDINV,'DD/MM/YYYY HH24:MI')='01/01/0001 00:00' then ' ' else to_char(MOTHER.SHDINV,'DD/MM/YYYY HH24:MI') end
+           case when coalesce(MOTHER.SHDINV::date, date '0001-01-01') = date '0001-01-01' then null else MOTHER.SHDINV end
          else
-           case when to_char(CHILD.SHDINV,'DD/MM/YYYY HH24:MI')='01/01/0001 00:00' then ' ' else to_char(CHILD.SHDINV,'DD/MM/YYYY HH24:MI') end
+           case when coalesce(CHILD.SHDINV::date,  date '0001-01-01') = date '0001-01-01' then null else CHILD.SHDINV end
     end as INVOICE_DATE,
 
     case when PE.PETSOP='1' and PE.PETSOL='1' then 0 else PREP_LINES.QTY_ORDERED end as QUANTITY_ORDERED,
@@ -469,43 +348,94 @@ BASE as (
          when DMS_SUB.QTY_DMS is null then 0 else DMS_SUB.QTY_DMS end as QUANTITY_DMS,
     case when PE.PETSOP='1' then coalesce(GS.QTY_COL_EXP,0) else coalesce(PREP_LINES_QTY.QTY_COL_LOAD,0) end as PARCELS_LOADED,
     case when PE.PETSOP='1' then coalesce(GS.QTY_PIE_EXP,0) else coalesce(PREP_LINES_QTY.QTY_PIE_LOAD,0) end as PIECES_LOADED,
-    case when PE.PETSOP='1' then coalesce(GS.QTY_COL_EXP,0) else coalesce(PREP_LINES_QTY.QTY_COL,0) end as CARTONS,
+    /* your table stores CARTONS as VARCHAR; cast to keep consistent */
+    (case when PE.PETSOP='1' then coalesce(GS.QTY_COL_EXP,0) else coalesce(PREP_LINES_QTY.QTY_COL,0) end)::varchar as CARTONS,
 
-    case when PE.PET1PP=0 or (PE.PETSOL='1' and PE.PET1PP>0) then 'CANCEL' else ' ' end as TK05_CANCEL_FLAG,
+    case when PE.PET1PP=0 or (PE.PETSOL='1' and PE.PET1PP>0) then 'CANCEL' else null end as TK05_CANCEL_FLAG,
     case
       when CHILD.SHCACT is null then
-        case when to_char(MOTHER.SHTTKP)='0' and (PE.PET1PP=0 or (PE.PETSOL='1' and PE.PET1PP>0)) then ' '
-             else to_char(MOTHER.SHDTKP,'DD/MM/YYYY HH24:MI') end
+        case when coalesce(MOTHER.SHTTKP,0)=0 and (PE.PET1PP=0 or (PE.PETSOL='1' and PE.PET1PP>0)) then null
+             else MOTHER.SHDTKP end
       else
-        case when to_char(CHILD.SHTTKP)='0' and (PE.PET1PP=0 or (PE.PETSOL='1' and PE.PET1PP>0)) then ' '
-             else case when to_char(CHILD.SHTTKP)='0' then ' '
-                       else to_char(CHILD.SHDTKP,'DD/MM/YYYY HH24:MI') end end
+        case when coalesce(CHILD.SHTTKP,0)=0 and (PE.PET1PP=0 or (PE.PETSOL='1' and PE.PET1PP>0)) then null
+             else case when coalesce(CHILD.SHTTKP,0)=0 then null else CHILD.SHDTKP end end
     end as TK05_CANCEL_DATE,
 
-    /* Planning windows (kept as in original) */
-    case when MOTHER.SHDIPA is null then (case when to_char(CHILD.SHDIPA,'DD/MM/YYYY HH24:MI')='00/00/0000 00:00' then ' ' else to_char(CHILD.SHDIPA,'DD/MM/YYYY') end)
-         else (case when to_char(MOTHER.SHDIPA,'DD/MM/YYYY')='00/00/0000 00:00' then ' ' else to_char(MOTHER.SHDIPA,'DD/MM/YYYY') end) end as INITIAL_PLANNED_PACKING_DATE,
-    case when MOTHER.SHDIPA is null then (case when to_char(CHILD.SHDIPA,'DD/MM/YYYY HH24:MI')='00/00/0000 00:00' then ' ' else to_char(CHILD.SHDIPA,'HH24:MI') end)
-         else (case when to_char(MOTHER.SHDIPA,'HH24:MI')='00/00/0000 00:00' then ' ' else to_char(MOTHER.SHDIPA,'HH24:MI') end) end as INITIAL_PLANNED_PACKING_TIME,
-    case when MOTHER.SHDPPA is null then (case when to_char(CHILD.SHDPPA,'DD/MM/YYYY HH24:MI')='00/00/0000 00:00' then ' ' else to_char(CHILD.SHDPPA,'DD/MM/YYYY') end)
-         else (case when to_char(MOTHER.SHDPPA,'DD/MM/YYYY')='00/00/0000 00:00' then ' ' else to_char(MOTHER.SHDPPA,'DD/MM/YYYY') end) end as PLANNED_PACKING_DATE,
-    case when MOTHER.SHDPPA is null then (case when to_char(CHILD.SHDPPA,'DD/MM/YYYY HH24:MI')='00/00/0000 00:00' then ' ' else to_char(CHILD.SHDPPA,'HH24:MI') end)
-         else (case when to_char(MOTHER.SHDPPA,'HH24:MI')='00/00/0000 00:00' then ' ' else to_char(MOTHER.SHDPPA,'HH24:MI') end) end as PLANNED_PACKING_TIME,
-    case when MOTHER.SHDILP is null then (case when to_char(CHILD.SHDILP,'DD/MM/YYYY HH24:MI')='00/00/0000 00:00' then ' ' else to_char(CHILD.SHDILP,'DD/MM/YYYY') end)
-         else (case when to_char(MOTHER.SHDILP,'DD/MM/YYYY')='00/00/0000 00:00' then ' ' else to_char(MOTHER.SHDILP,'DD/MM/YYYY') end) end as INITIAL_LATEST_PLANNED_PACKING_DATE,
-    case when MOTHER.SHDILP is null then (case when to_char(CHILD.SHDILP,'DD/MM/YYYY HH24:MI')='00/00/0000 00:00' then ' ' else to_char(CHILD.SHDILP,'HH24:MI') end)
-         else (case when to_char(MOTHER.SHDILP,'HH24:MI')='00/00/0000 00:00' then ' ' else to_char(MOTHER.SHDILP,'HH24:MI') end) end as INITIAL_LATEST_PLANNED_PACKING_TIME,
-    case when MOTHER.SHDLPA is null then (case when to_char(CHILD.SHDLPA,'DD/MM/YYYY HH24:MI') in ('00/00/0000 00:00','01/01/0001 00:00') then ' ' else to_char(CHILD.SHDLPA,'DD/MM/YYYY') end)
-         else (case when to_char(MOTHER.SHDLPA,'DD/MM/YYYY') in ('00/00/0000 00:00','01/01/0001 00:00') then ' ' else to_char(MOTHER.SHDLPA,'DD/MM/YYYY') end) end as LATEST_PLANNED_PACKING_DATE,
-    case when MOTHER.SHDLPA is null then (case when to_char(CHILD.SHDLPA,'DD/MM/YYYY HH24:MI') in ('00/00/0000 00:00','01/01/0001 00:00') then ' ' else to_char(CHILD.SHDLPA,'HH24:MI') end)
-         else (case when to_char(MOTHER.SHDLPA,'HH24:MI') in ('00/00/0000 00:00','01/01/0001 00:00') then ' ' else to_char(MOTHER.SHDLPA,'HH24:MI') end) end as LATEST_PLANNED_PACKING_TIME,
-    case when MOTHER.SHDIPU is null then (case when to_char(CHILD.SHDIPU,'DD/MM/YYYY HH24:MI') in ('00/00/0000 00:00','01/01/0001 00:00') then ' ' else to_char(CHILD.SHDIPU,'DD/MM/YYYY') end)
-         else (case when to_char(MOTHER.SHDIPU,'DD/MM/YYYY') in ('00/00/0000 00:00','01/01/0000 00:00') then ' ' else to_char(MOTHER.SHDIPU,'DD/MM/YYYY') end) end as INITIAL_PICKUP_DATE,
-    case when MOTHER.SHDIPU is null then (case when to_char(CHILD.SHDIPU,'DD/MM/YYYY HH24:MI') in ('00/00/0000 00:00','01/01/0001 00:00') then ' ' else to_char(CHILD.SHDIPU,'HH24:MI') end)
-         else (case when to_char(MOTHER.SHDIPU,'HH24:MI') in ('00/00/0000 00:00','01/01/0001 00:00') then ' ' else to_char(MOTHER.SHDIPU,'HH24:MI') end) end as INITIAL_PICKUP_TIME,
-    case when MOTHER.SHDPUP is null then (case when to_char(CHILD.SHDPUP,'DD/MM/YYYY HH24:MI')='00/00/0000 00:00' then ' ' else to_char(CHILD.SHDPUP,'DD/MM/YYYY') end)
-         else (case when to_char(MOTHER.SHDPUP,'DD/MM/YYYY')='00/00/0000 00:00' then ' ' else to_char(MOTHER.SHDPUP,'DD/MM/YYYY') end) end as PICKUP_DATE,
-    '00:00' as PICKUP_TIME,
+    /* ===================== PLANNING WINDOWS (type-safe) ===================== */
+    -- INITIAL planned packing (TIMESTAMP + TIMESTAMP as per your table)
+    CASE
+      WHEN MOTHER.SHDIPA IS NOT NULL AND MOTHER.SHDIPA::DATE <> DATE '0001-01-01' THEN MOTHER.SHDIPA
+      WHEN CHILD.SHDIPA  IS NOT NULL AND CHILD.SHDIPA::DATE  <> DATE '0001-01-01' THEN CHILD.SHDIPA
+      ELSE NULL
+    END AS INITIAL_PLANNED_PACKING_DATE,
+
+    CASE
+      WHEN MOTHER.SHDIPA IS NOT NULL AND MOTHER.SHDIPA::DATE <> DATE '0001-01-01' THEN MOTHER.SHDIPA
+      WHEN CHILD.SHDIPA  IS NOT NULL AND CHILD.SHDIPA::DATE  <> DATE '0001-01-01' THEN CHILD.SHDIPA
+      ELSE NULL
+    END AS INITIAL_PLANNED_PACKING_TIME,
+
+    -- Planned packing (DATE + VARCHAR time)
+    CASE
+      WHEN MOTHER.SHDPPA IS NOT NULL AND MOTHER.SHDPPA::DATE <> DATE '0001-01-01' THEN MOTHER.SHDPPA::DATE
+      WHEN CHILD.SHDPPA  IS NOT NULL AND CHILD.SHDPPA::DATE  <> DATE '0001-01-01' THEN CHILD.SHDPPA::DATE
+      ELSE NULL
+    END AS PLANNED_PACKING_DATE,
+
+    CASE
+      WHEN MOTHER.SHDPPA IS NOT NULL AND MOTHER.SHDPPA::DATE <> DATE '0001-01-01' THEN TO_CHAR(MOTHER.SHDPPA,'HH24:MI')
+      WHEN CHILD.SHDPPA  IS NOT NULL AND CHILD.SHDPPA::DATE  <> DATE '0001-01-01' THEN TO_CHAR(CHILD.SHDPPA,'HH24:MI')
+      ELSE NULL
+    END AS PLANNED_PACKING_TIME,
+
+    -- INITIAL LATEST planned packing (DATE + VARCHAR time)
+    CASE
+      WHEN MOTHER.SHDILP IS NOT NULL AND MOTHER.SHDILP::DATE <> DATE '0001-01-01' THEN MOTHER.SHDILP::DATE
+      WHEN CHILD.SHDILP  IS NOT NULL AND CHILD.SHDILP::DATE  <> DATE '0001-01-01' THEN CHILD.SHDILP::DATE
+      ELSE NULL
+    END AS INITIAL_LATEST_PLANNED_PACKING_DATE,
+
+    CASE
+      WHEN MOTHER.SHDILP IS NOT NULL AND MOTHER.SHDILP::DATE <> DATE '0001-01-01' THEN TO_CHAR(MOTHER.SHDILP,'HH24:MI')
+      WHEN CHILD.SHDILP  IS NOT NULL AND CHILD.SHDILP::DATE  <> DATE '0001-01-01' THEN TO_CHAR(CHILD.SHDILP,'HH24:MI')
+      ELSE NULL
+    END AS INITIAL_LATEST_PLANNED_PACKING_TIME,
+
+    -- LATEST planned packing (DATE + VARCHAR time)
+    CASE
+      WHEN MOTHER.SHDLPA IS NOT NULL AND MOTHER.SHDLPA::DATE <> DATE '0001-01-01' THEN MOTHER.SHDLPA::DATE
+      WHEN CHILD.SHDLPA  IS NOT NULL AND CHILD.SHDLPA::DATE  <> DATE '0001-01-01' THEN CHILD.SHDLPA::DATE
+      ELSE NULL
+    END AS LATEST_PLANNED_PACKING_DATE,
+
+    CASE
+      WHEN MOTHER.SHDLPA IS NOT NULL AND MOTHER.SHDLPA::DATE <> DATE '0001-01-01' THEN TO_CHAR(MOTHER.SHDLPA,'HH24:MI')
+      WHEN CHILD.SHDLPA  IS NOT NULL AND CHILD.SHDLPA::DATE  <> DATE '0001-01-01' THEN TO_CHAR(CHILD.SHDLPA,'HH24:MI')
+      ELSE NULL
+    END AS LATEST_PLANNED_PACKING_TIME,
+
+    -- INITIAL pickup (DATE + VARCHAR time)
+    CASE
+      WHEN MOTHER.SHDIPU IS NOT NULL AND MOTHER.SHDIPU::DATE <> DATE '0001-01-01' THEN MOTHER.SHDIPU::DATE
+      WHEN CHILD.SHDIPU  IS NOT NULL AND CHILD.SHDIPU::DATE  <> DATE '0001-01-01' THEN CHILD.SHDIPU::DATE
+      ELSE NULL
+    END AS INITIAL_PICKUP_DATE,
+
+    CASE
+      WHEN MOTHER.SHDIPU IS NOT NULL AND MOTHER.SHDIPU::DATE <> DATE '0001-01-01' THEN TO_CHAR(MOTHER.SHDIPU,'HH24:MI')
+      WHEN CHILD.SHDIPU  IS NOT NULL AND CHILD.SHDIPU::DATE  <> DATE '0001-01-01' THEN TO_CHAR(CHILD.SHDIPU,'HH24:MI')
+      ELSE NULL
+    END AS INITIAL_PICKUP_TIME,
+
+    -- PICKUP (DATE + fixed time text)
+    CASE
+      WHEN MOTHER.SHDPUP IS NOT NULL AND MOTHER.SHDPUP::DATE <> DATE '0001-01-01' THEN MOTHER.SHDPUP::DATE
+      WHEN CHILD.SHDPUP  IS NOT NULL AND CHILD.SHDPUP::DATE  <> DATE '0001-01-01' THEN CHILD.SHDPUP::DATE
+      ELSE NULL
+    END AS PICKUP_DATE,
+
+    '00:00' AS PICKUP_TIME,
+    /* =================== END PLANNING WINDOWS =================== */
 
     PE.PECMOP as FLOW,
     case
@@ -521,7 +451,7 @@ BASE as (
       when PE.PECMOP='FSG' then 'FCA + Stop&Go'
       when PE.PECMOP='HAL' then 'Hallmarking'
       when PE.PECMOP='MTM' then 'Make to Order, Make to Measure'
-      when PE.PECMOP='TK9' then ''
+      when PE.PECMOP='TK9' then null
       when PE.PECMOP='VAN' then 'Vanilla'
       when PE.PECMOP='VIN' then 'Invoice Required'
       when PE.PECMOP='VOK' then 'OK to Ship'
@@ -569,10 +499,10 @@ BASE as (
     case when CHILD.SHTURG is null then MOTHER.SHTURG else CHILD.SHTURG end as FLAG_URGENT,
     case when CHILD.SHTCUT is null then MOTHER.SHTCUT else CHILD.SHTCUT end as FLAG_CUT_OFF,
     case when CHILD.SHTDMM is null then MOTHER.SHTDMM else CHILD.SHTDMM end as FLAG_DMM_RECALCULATION,
-    case when MOTHER.SHDCPU is null then (case when to_char(CHILD.SHDCPU,'DD/MM/YYYY HH24:MI')='00/00/0000 00:00' then ' ' else to_char(CHILD.SHDCPU,'DD/MM/YYYY HH24:MI') end)
-         else (case when to_char(MOTHER.SHDCPU,'DD/MM/YYYY HH24:MI')='00/00/0000 00:00' then ' ' else to_char(MOTHER.SHDCPU,'DD/MM/YYYY HH24:MI') end) end as DMM_PICKUP,
-    case when MOTHER.SHDCPA is null then (case when to_char(CHILD.SHDCPA,'DD/MM/YYYY HH24:MI')='00/00/0000 00:00' then ' ' else to_char(CHILD.SHDCPA,'DD/MM/YYYY HH24:MI') end)
-         else (case when to_char(MOTHER.SHDCPA,'DD/MM/YYYY HH24:MI')='00/00/0000 00:00' then ' ' else to_char(MOTHER.SHDCPA,'DD/MM/YYYY HH24:MI') end) end as DMM_PACKING,
+    case when MOTHER.SHDCPU is null then (case when CHILD.SHDCPU::date = date '0001-01-01' then null else CHILD.SHDCPU end)
+         else (case when MOTHER.SHDCPU::date = date '0001-01-01' then null else MOTHER.SHDCPU end) end as DMM_PICKUP,
+    case when MOTHER.SHDCPA is null then (case when CHILD.SHDCPA::date = date '0001-01-01' then null else CHILD.SHDCPA end)
+         else (case when MOTHER.SHDCPA::date = date '0001-01-01' then null else MOTHER.SHDCPA end) end as DMM_PACKING,
 
     PE.PETOPD as FLAG_ORDER_DESACTIVATED,
 
@@ -589,7 +519,9 @@ BASE as (
     ) as CHANGE_TS,
 
     '0' as ISDELETED,
-    PREP_LINES.PRODCAT as PRODUCT_CATEGORY
+    PREP_LINES.PRODCAT as PRODUCT_CATEGORY,
+    /* Pass through for comments (if you still want it in FACT; table had COMMENTI earlier) */
+    COALESCE(PE.Commenti, NULL) as COMMENTI
 
   from MODELS.KERING_GLOBE.HLODPEP OE
   join PREP_LINES
@@ -683,16 +615,8 @@ select
   CHANGE_TS as UPDATED_DATE,
   ISDELETED,
   PRODUCT_CATEGORY
-from BASE
-;
-------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------
-CALL  SP_KER_02_OUTBOUND_LOAD();
-SELECT * FROM FACT_CRT_KER_02_OUTBOUND;
-ALTER TABLE FACT_KER_02_OUTBOUND ALTER COLUMN FLAG_CEE  SET DATA TYPE VARCHAR(30);
-DROP TABLE FACT_CRT_KER_02_OUTBOUND;
-------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------
+from BASE;
+
 
 CREATE OR REPLACE PROCEDURE SP_KER_02_OUTBOUND_LOAD(SAFETY_HOURS INTEGER DEFAULT 4)
 RETURNS STRING
@@ -711,7 +635,6 @@ BEGIN
                TO_TIMESTAMP_NTZ('1900-01-01 00:00:00')
              )
            )
-    -- Optional filters
   ) s
   ON (t.PK_FACT_OUTBOUND = s.PK_FACT_OUTBOUND)
 
