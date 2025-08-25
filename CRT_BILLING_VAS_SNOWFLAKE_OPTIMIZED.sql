@@ -35,7 +35,6 @@ PREPLINES AS (
     AND (
       (SELECT APPLY_RANGE FROM RANGE_PARAMS) = FALSE
       OR (
-           /* either table being in-range is enough to keep the row */
            (P1.HVR_CHANGE_TIME >= (SELECT START_TS FROM RANGE_PARAMS)
         AND P1.HVR_CHANGE_TIME <  (SELECT END_TS   FROM RANGE_PARAMS))
         OR (SH.HVR_CHANGE_TIME >= (SELECT START_TS FROM RANGE_PARAMS)
@@ -53,17 +52,18 @@ VASLINE
 -----------------------------------------------------------------------*/
 VASLINE AS (
   SELECT
-    S.P1CDPO, S.P1CACT, S.P1NANP, S.P1NPRE,
-    S.CLCART, S.CLRCDE, S.CLNANP, S.CLNPRE,
+    /* passthrough columns come from the pre-UNPIVOT select; don't prefix with S. */
+    P1CDPO, P1CACT, P1NANP, P1NPRE,
+    CLCART, CLRCDE, CLNANP, CLNPRE,
     U.VAS_CODE,
     /* Keep qty at this stage for later capped aggregation */
-    S.CLQPPP AS QTY_VAS_LANCIATA,
-    S.PREPA_TYPE,
+    CLQPPP AS QTY_VAS_LANCIATA,
+    PREPA_TYPE,
     KBTV.VTCTVA AS MAP_VAS_CODE,
     /* VAS_CLUSTER = text after '#' in VTDVAS, ')' stripped */
     REPLACE(SPLIT_PART(KBTV.VTDVAS, '#', 2), ')', '') AS VAS_CLUSTER,
     /* track change time from CL (KBMCDLP) as driver for this branch */
-    S.CL_LASTUPDATE
+    CL_LASTUPDATE
   FROM (
     SELECT
       P1.P1CDPO, P1.P1CACT, P1.P1NANP, P1.P1NPRE,
@@ -71,7 +71,7 @@ VASLINE AS (
       CL.CLQPPP,
       /* choose child vs mother shipment to bind CL correctly */
       CASE WHEN KP_CHILD.KPRODP IS NULL THEN 'MOTHER' ELSE 'CHILD' END AS PREPA_TYPE,
-      /* pull a single non-null VAS column per row via UNPIVOT next */
+      /* the 25 potential VAS columns to unpivot */
       CL.CLVA01, CL.CLVA02, CL.CLVA03, CL.CLVA04, CL.CLVA05,
       CL.CLVA06, CL.CLVA07, CL.CLVA08, CL.CLVA09, CL.CLVA10,
       CL.CLVA11, CL.CLVA12, CL.CLVA13, CL.CLVA14, CL.CLVA15,
@@ -124,7 +124,6 @@ VASLINE AS (
      AND CL.CLNANP = COALESCE(KP_CHILD.KPNAOR, KP_MOTHER.KPNAOR)
      AND CL.CLNPRE = COALESCE(KP_CHILD.KPNPOR, KP_MOTHER.KPNPOR)
     WHERE
-      /* optional pushdown range on CL values; PREPLINES already ranged */
       (
         (SELECT APPLY_RANGE FROM RANGE_PARAMS) = FALSE
         OR (
@@ -132,8 +131,8 @@ VASLINE AS (
          AND CL.HVR_CHANGE_TIME  < (SELECT END_TS   FROM RANGE_PARAMS)
         )
       )
-  ) S
-  /* Snowflake UNPIVOT to one VAS per row */
+  )
+  /* UNPIVOT to one VAS per row */
   UNPIVOT (VAS_CODE FOR POSITION IN (
     CLVA01, CLVA02, CLVA03, CLVA04, CLVA05,
     CLVA06, CLVA07, CLVA08, CLVA09, CLVA10,
@@ -255,8 +254,7 @@ RANGE_FILTER AS (
 )
 
 SELECT * FROM RANGE_FILTER;
---------------------------------------------------------------------------------------
-
+------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE SP_KER_BILLING_VAS_LOAD(SAFETY_HOURS INTEGER DEFAULT 4)
 RETURNS STRING
 LANGUAGE SQL
