@@ -1,20 +1,4 @@
-
--- ======================================================================
--- View: MODELS.KERING_GLOBE.CRT_KER_02_OUTBOUND
--- Purpose: Snowflake translation + optimization with CTEs and clear docs.
--- Key changes from Oracle:
---   * Sources moved to MODELS.KERING_GLOBE; YMS tables remain GG_KERIYMS_PRD.
---   * Legacy GGS_* columns removed; use HVR_CHANGE_TIME for last-change logic.
---   * SMART_BI.OBJECT_RUN_KERING_B reference removed.
---   * Added OPTIONAL load-time filter (commented) using computed CHANGE_TS.
---   * Oracle functions replaced with Snowflake equivalents.
--- Performance notes:
---   * Pre-aggregation CTEs (PREP_LINES, PREP_LINES_QTY, GS, HU, SG1/SG2, YMX).
---   * No ORDER BY in the view; push ordering to consumers.
---   * Minimal casting in join predicates.
--- ======================================================================
-
-create or replace view MODELS.KERING_GLOBE.CRT_KER_02_OUTBOUND as
+create or replace view CRT_KER_02_OUTBOUND as
 with
 
 /*-----------------------------------------------------------------------
@@ -72,8 +56,11 @@ PE as (
            CO.Commenti
     from MODELS.KERING_GLOBE.HLPRENP PE
     left join (
-        select CONCOM, listagg(COTXTC, ' | ' on overflow truncate '...') within group (order by CONLCO) as Commenti
-        from MODELS.KERING_GLOBE.HLCOMMP
+    --ERROR
+            SELECT
+        CONCOM, 
+        LISTAGG(COTXTC, ' | ') WITHIN GROUP (ORDER BY CONLCO) AS Commenti
+        FROM MODELS.KERING_GLOBE.HLCOMMP
         group by CONCOM
     ) CO
       on PE.PENCOM = CO.CONCOM
@@ -207,14 +194,14 @@ YMX as (
       max(YMA.MO_ARRIVAL_DATE)   as MO_ARRIVAL_DATE,
       max(YMB.MO_BAY_DATE)       as MO_BAY_DATE,
       max(YMD.MO_DEPARTURE_DATE) as MO_DEPARTURE_DATE
-    from GG_KERIYMS_PRD.TIEADRSLOTTASK TD
+    from TIEADRSLOTTASK TD
     left join (
         select YM1.IDSITE, YM1.IDDEPOT, YM1.MOSTATE, YM1.MOAPPOINTMENT,
                min(MOARRIVALDATE) as MO_ARRIVAL_DATE,
                max(YM1.MOLICENCEPLATE1) as MOLICENCEPLATE1,
                TS.TSLID
-        from GG_KERIYMS_PRD.HISTORYMOVEMENT YM1
-        join GG_KERIYMS_PRD.TIEADRSLOT TS
+        from HISTORYMOVEMENT YM1
+        join TIEADRSLOT TS
           on YM1.MOAPPOINTMENT = TS.TSLNUM
         where YM1.IDSITE = '1' and YM1.IDDEPOT = '4' and YM1.MOSTATE = 20
         group by YM1.IDSITE, YM1.IDDEPOT, YM1.MOSTATE, YM1.MOAPPOINTMENT, TS.TSLID
@@ -224,10 +211,10 @@ YMX as (
                min(YM2.HYTIMESTAMP) as MO_BAY_DATE,
                min(D.DONAME) as DOCK,
                TS.TSLID
-        from GG_KERIYMS_PRD.HISTORYMOVEMENT YM2
-        join GG_KERIYMS_PRD.DOCK D
+        from HISTORYMOVEMENT YM2
+        join DOCK D
           on D.IDDOCK = YM2.IDDOCK
-        join GG_KERIYMS_PRD.TIEADRSLOT TS
+        join TIEADRSLOT TS
           on YM2.MOAPPOINTMENT = TS.TSLNUM
         where YM2.IDSITE = '1' and YM2.IDDEPOT = '4' and YM2.MOSTATE = 60 and YM2.IDSTATUS = 3
         group by YM2.IDSITE, YM2.IDDEPOT, YM2.MOSTATE, YM2.MOAPPOINTMENT, TS.TSLID
@@ -237,10 +224,10 @@ YMX as (
                min(HYTIMESTAMP) as MO_DEPARTURE_DATE,
                min(D.DONAME) as DOCK,
                TS.TSLID
-        from GG_KERIYMS_PRD.HISTORYMOVEMENT YM4
-        join GG_KERIYMS_PRD.DOCK D
+        from HISTORYMOVEMENT YM4
+        join DOCK D
           on D.IDDOCK = YM4.IDDOCK
-        join GG_KERIYMS_PRD.TIEADRSLOT TS
+        join TIEADRSLOT TS
           on YM4.MOAPPOINTMENT = TS.TSLNUM
         where YM4.IDSITE = '1' and YM4.IDDEPOT = '4' and YM4.MOSTATE = 60 and YM4.IDSTATUS = 11
         group by YM4.IDSITE, YM4.IDDEPOT, YM4.MOSTATE, YM4.MOAPPOINTMENT, TS.TSLID
@@ -249,8 +236,8 @@ YMX as (
         select YM3.IDSITE, YM3.IDDEPOT, YM3.MOSTATE, YM3.MOAPPOINTMENT,
                min(YM3.MODEPARTUREDATE) as MO_DEPARTURE_DATE,
                TS.TSLID
-        from GG_KERIYMS_PRD.HISTORYMOVEMENT YM3
-        join GG_KERIYMS_PRD.TIEADRSLOT TS
+        from HISTORYMOVEMENT YM3
+        join TIEADRSLOT TS
           on YM3.MOAPPOINTMENT = TS.TSLNUM
         where YM3.IDSITE = '1' and YM3.IDDEPOT = '4' and YM3.MOSTATE = 99
         group by YM3.IDSITE, YM3.IDDEPOT, YM3.MOSTATE, YM3.MOAPPOINTMENT, TS.TSLID
@@ -268,7 +255,7 @@ Output grain: one row per outbound fact.
 BASE as (
 select
     -- PK
-    to_hex(md5('B' || OE.OENANN || OE.OENODP || PE.PECACT || PE.PECDPO || PE.PERODP || PE.PENANN || PE.PENPRE)) as PK_FACT_OUTBOUND,
+    UPPER(md5('B' || OE.OENANN || OE.OENODP || PE.PECACT || PE.PECDPO || PE.PERODP || PE.PENANN || PE.PENPRE)) as PK_FACT_OUTBOUND,
 
     -- Timestamps (rendered as strings to keep parity with original)
     to_char(MOTHER.SHDCOR,'DD/MM/YYYY') as INTEGRATION_DATE,
@@ -452,7 +439,7 @@ select
          else (case when to_char(MOTHER.SHDCPA, 'DD/MM/YYYY HH24:MI') = '00/00/0000 00:00' then ' ' else to_char(MOTHER.SHDCPA, 'DD/MM/YYYY HH24:MI') end) end as DMM_PACKING,
 
     -- Misc
-    substr(PE."Commenti",1,70) as "Commenti",
+    --substr(PE."Commenti",1,70) as "Commenti",
     PE.PETOPD as FLAG_ORDER_DESACTIVATED,
 
     -- Computed per-row change timestamp (used for optional filtering & exposed)
@@ -497,7 +484,7 @@ left join DMS_SUB
   on DMS_SUB.P1CDPO = PE.PECDPO and DMS_SUB.P1CACT = PE.PECACT and DMS_SUB.P1NANP = PE.PENANN and DMS_SUB.P1NPRE = PE.PENPRE
 left join GS
   on GS.GSCDPO = PE.PECDPO and GS.GSCACT = PE.PECACT and GS.GSNAPP = PE.PENANN and GS.GSNPRE = PE.PENPRE
-left join MODELS.KERING_GLOBE.FACT_KER_02_OUTBOUND_VAS VAS
+left join FACT_KER_02_OUTBOUND_VAS VAS
   on PE.PECDPO = VAS.P1CDPO and PE.PECACT = VAS.P1CACT and PE.PENANN = VAS.P1NANP and PE.PENPRE = VAS.P1NPRE
 left join CO on CO.CORCDE = PE.PERODP
 left join SG1 on SG1.CGCOD = PE.PECCHA and SG1.CGSIE = PE.PESSCA and SG1.CGANN = PE.PEANCA and SG1.CGMOI = PE.PEMOCA and SG1.CGJOU = PE.PEJOCA
@@ -607,19 +594,19 @@ select
   FLAG_DMM_RECALCULATION,
   DMM_PICKUP,
   DMM_PACKING,
-  "Commenti",
+  --"Commenti",
   FLAG_ORDER_DESACTIVATED,
   /* expose the change timestamp */
   CHANGE_TS as UPDATED_DATE,
   ISDELETED,
   PRODUCT_CATEGORY
 from BASE
-/* ================= OPTIONAL LOAD-TIME FILTER ==========================
+
 -- Use this to select data loaded/changed on or after a specific moment.
 -- Example: on/after 2025-08-01 00:00:00
--- WHERE CHANGE_TS >= to_timestamp('2025-08-01 00:00:00')
+WHERE CHANGE_TS >= to_timestamp('2025-08-25 16:00:00')
 -- Or use a session variable:
 --   set LOAD_FROM_TS = to_timestamp('2025-08-01 00:00:00');
 --   select * from MODELS.KERING_GLOBE.CRT_KER_02_OUTBOUND where CHANGE_TS >= $LOAD_FROM_TS;
-======================================================================== */
+
 ;
